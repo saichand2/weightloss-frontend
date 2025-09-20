@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 
-const BACKEND_URL = "http://127.0.0.1:3000/nutrition"; // replace with your backend IP
+const BACKEND_URL = "http://127.0.0.1:3000/nutrition";
 
 export default function MealEntryScreen() {
   const [meal, setMeal] = useState("");
@@ -21,48 +21,40 @@ export default function MealEntryScreen() {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState([]);
 
-  // Manual entry fields
   const [manualCalories, setManualCalories] = useState("");
   const [manualProtein, setManualProtein] = useState("");
   const [manualCarbs, setManualCarbs] = useState("");
   const [manualFat, setManualFat] = useState("");
 
-  // Custom meals
   const [customMeals, setCustomMeals] = useState([]);
   const [selectedCustomMeal, setSelectedCustomMeal] = useState("");
   const [mealQuantity, setMealQuantity] = useState("1");
 
   const currentDate = new Date().toISOString().split("T")[0];
 
-  // Daily targets
   const dailyTargets = {
     calories: { min: 1000, max: 1500 },
     protein: 120,
     carbs: 120,
   };
 
-  // Load logs for today
   useEffect(() => {
     const loadLogs = async () => {
       try {
         const saved = await AsyncStorage.getItem("logs");
         if (saved) {
           const parsed = JSON.parse(saved);
-          const todayLogs = parsed.filter((log) => log.date === currentDate);
-          setLogs(todayLogs);
+          setLogs(parsed.filter((log) => log.date === currentDate));
         }
-
-        // Load custom meals
         const savedMeals = await AsyncStorage.getItem("customMeals");
         if (savedMeals) setCustomMeals(JSON.parse(savedMeals));
       } catch (error) {
-        console.error("Error loading logs or meals", error);
+        console.error(error);
       }
     };
     loadLogs();
   }, []);
 
-  // Save logs whenever updated
   useEffect(() => {
     const saveLogs = async () => {
       try {
@@ -74,13 +66,12 @@ export default function MealEntryScreen() {
           JSON.stringify([...parsed, ...logs])
         );
       } catch (error) {
-        console.error("Error saving logs", error);
+        console.error(error);
       }
     };
     saveLogs();
   }, [logs]);
 
-  // Fetch nutrition from backend
   const handleFetchNutrition = async () => {
     if (!meal) {
       Alert.alert("Please enter a meal first");
@@ -103,7 +94,6 @@ export default function MealEntryScreen() {
     setLoading(false);
   };
 
-  // Compute current meal preview
   const currentMealPreview = (() => {
     if (selectedCustomMeal) {
       const mealObj = customMeals.find((m) => m.id === selectedCustomMeal);
@@ -118,7 +108,6 @@ export default function MealEntryScreen() {
         },
       };
     }
-
     if (manualCalories || manualProtein || manualCarbs || manualFat) {
       return {
         name: meal || "Manual Entry",
@@ -130,21 +119,17 @@ export default function MealEntryScreen() {
         },
       };
     }
-
     if (meal && nutrition?.total) {
       return { name: meal, total: nutrition.total };
     }
-
     return null;
   })();
 
-  // Log entry
   const handleLog = () => {
     if (!meal && !exercise && !manualCalories && !selectedCustomMeal) {
       Alert.alert("Please enter a meal, exercise, or manual nutrition values");
       return;
     }
-
     const newLog = {
       id: Date.now().toString(),
       date: currentDate,
@@ -152,10 +137,7 @@ export default function MealEntryScreen() {
       exercise,
       nutrition: currentMealPreview.total ? { total: currentMealPreview.total } : null,
     };
-
     setLogs((prev) => [...prev, newLog]);
-
-    // Clear inputs
     setMeal("");
     setExercise("");
     setNutrition(null);
@@ -167,12 +149,10 @@ export default function MealEntryScreen() {
     setMealQuantity("1");
   };
 
-  // Delete log
   const handleDelete = (id) => {
     setLogs((prev) => prev.filter((log) => log.id !== id));
   };
 
-  // Totals for today
   const totals = logs.reduce(
     (acc, log) => {
       if (log.nutrition?.total) {
@@ -186,7 +166,6 @@ export default function MealEntryScreen() {
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
 
-  // Check if targets are met
   const targetsMet =
     totals.calories >= dailyTargets.calories.min &&
     totals.calories <= dailyTargets.calories.max &&
@@ -197,7 +176,6 @@ export default function MealEntryScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.header}>🥗 Meal Entry (Today)</Text>
 
-      {/* Meal Input */}
       <Text style={styles.label}>Enter your meal:</Text>
       <TextInput
         style={styles.input}
@@ -210,10 +188,7 @@ export default function MealEntryScreen() {
         onPress={handleFetchNutrition}
       />
 
-      {/* Manual Nutrition Entry */}
-      <Text style={[styles.label, { marginTop: 20 }]}>
-        Or enter nutrition manually:
-      </Text>
+      <Text style={[styles.label, { marginTop: 20 }]}>Manual Nutrition:</Text>
       <View style={styles.manualInputRow}>
         <TextInput
           style={styles.manualInput}
@@ -247,31 +222,33 @@ export default function MealEntryScreen() {
         />
       </View>
 
-      {/* Custom Meals */}
       <Text style={styles.label}>Select a custom meal:</Text>
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={selectedCustomMeal}
-          onValueChange={(itemValue) => setSelectedCustomMeal(itemValue)}
-        >
-          <Picker.Item label="-- Select Meal --" value="" />
-          {customMeals.map((meal) => (
-            <Picker.Item key={meal.id} label={meal.name} value={meal.id} />
-          ))}
-        </Picker>
+      <View style={styles.customMealRow}>
+        <View style={{ flex: 2 }}>
+          <Picker
+            selectedValue={selectedCustomMeal}
+            onValueChange={(itemValue) => setSelectedCustomMeal(itemValue)}
+            style={{ height: 50 }}
+          >
+            <Picker.Item label="-- Select Meal --" value="" />
+            {customMeals.map((meal) => (
+              <Picker.Item key={meal.id} label={meal.name} value={meal.id} />
+            ))}
+          </Picker>
+        </View>
+        {selectedCustomMeal && (
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <TextInput
+              style={styles.manualInput}
+              placeholder="Qty"
+              keyboardType="numeric"
+              value={mealQuantity}
+              onChangeText={setMealQuantity}
+            />
+          </View>
+        )}
       </View>
 
-      {selectedCustomMeal && (
-        <TextInput
-          style={styles.manualInput}
-          placeholder="Number of servings"
-          keyboardType="numeric"
-          value={mealQuantity}
-          onChangeText={setMealQuantity}
-        />
-      )}
-
-      {/* Exercise Dropdown */}
       <Text style={styles.label}>Select exercise (optional):</Text>
       <View style={styles.pickerContainer}>
         <Picker
@@ -286,7 +263,6 @@ export default function MealEntryScreen() {
         </Picker>
       </View>
 
-      {/* Current Meal Preview */}
       {currentMealPreview && (
         <View style={[styles.resultBox, { backgroundColor: "#e0f7fa" }]}>
           <Text style={styles.resultHeader}>{currentMealPreview.name}</Text>
@@ -297,76 +273,32 @@ export default function MealEntryScreen() {
         </View>
       )}
 
-      {/* Log Button */}
       <Button title="Log Entry" onPress={handleLog} />
 
-      {/* Today's Totals */}
-      <View style={styles.totalsCard}>
-        <Text style={styles.subHeader}>📊 Today's Totals</Text>
-        <View style={styles.progressRow}>
-          <Text>Calories: {totals.calories}/{dailyTargets.calories.max}</Text>
-          <View style={styles.progressBarContainer}>
-            <View
-              style={[
-                styles.progressBarFill,
-                {
-                  width: `${Math.min(
-                    (totals.calories / dailyTargets.calories.max) * 100,
-                    100
-                  )}%`,
-                  backgroundColor: "#FF6B6B",
-                },
-              ]}
-            />
+      {/* Totals and Celebration */}
+      {totals && (
+        <View style={styles.totalsCard}>
+          <Text style={styles.subHeader}>📊 Today's Totals</Text>
+          <View style={styles.progressRow}>
+            <Text>Calories: {totals.calories}/{dailyTargets.calories.max}</Text>
+          </View>
+          <View style={styles.progressRow}>
+            <Text>Protein: {totals.protein}/{dailyTargets.protein}</Text>
+          </View>
+          <View style={styles.progressRow}>
+            <Text>Carbs: {totals.carbs}/{dailyTargets.carbs}</Text>
           </View>
         </View>
-        <View style={styles.progressRow}>
-          <Text>Protein: {totals.protein}/{dailyTargets.protein}</Text>
-          <View style={styles.progressBarContainer}>
-            <View
-              style={[
-                styles.progressBarFill,
-                {
-                  width: `${Math.min(
-                    (totals.protein / dailyTargets.protein) * 100,
-                    100
-                  )}%`,
-                  backgroundColor: "#4ECDC4",
-                },
-              ]}
-            />
-          </View>
-        </View>
-        <View style={styles.progressRow}>
-          <Text>Carbs: {totals.carbs}/{dailyTargets.carbs}</Text>
-          <View style={styles.progressBarContainer}>
-            <View
-              style={[
-                styles.progressBarFill,
-                {
-                  width: `${Math.min(
-                    (totals.carbs / dailyTargets.carbs) * 100,
-                    100
-                  )}%`,
-                  backgroundColor: "#FFD93D",
-                },
-              ]}
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* Celebrate if targets met */}
+      )}
       {targetsMet && (
         <View style={styles.celebrationCard}>
           <Text style={styles.celebrationText}>
             🎉 Congrats! You hit your nutrition targets today! 🥳
           </Text>
-          <Text style={{ textAlign: "center", fontSize: 24 }}>✨🍎💪🥚🍗✨</Text>
         </View>
       )}
 
-      {/* Today's Logged Entries */}
+      {/* Logs */}
       <Text style={styles.subHeader}>📒 Today's Logs</Text>
       {logs.length === 0 ? (
         <Text style={styles.noLogs}>No logs for today.</Text>
@@ -376,8 +308,8 @@ export default function MealEntryScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <View style={styles.logCard}>
-              {item.meal ? <Text>🍴 Meal: {item.meal}</Text> : null}
-              {item.exercise ? <Text>🏋️ Exercise: {item.exercise}</Text> : null}
+              {item.meal && <Text>🍴 Meal: {item.meal}</Text>}
+              {item.exercise && <Text>🏋️ Exercise: {item.exercise}</Text>}
               {item.nutrition?.total && (
                 <>
                   <Text>🔥 Calories: {item.nutrition.total.calories}</Text>
@@ -418,73 +350,16 @@ const styles = StyleSheet.create({
     padding: 10,
     marginVertical: 8,
     borderRadius: 6,
-    width: "48%",
+    width: "100%",
   },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    marginVertical: 8,
-  },
-  resultBox: {
-    marginTop: 20,
-    padding: 15,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#b2ebf2",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 2,
-  },
+  pickerContainer: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, marginVertical: 8 },
+  customMealRow: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
+  resultBox: { marginTop: 20, padding: 15, borderRadius: 8, borderWidth: 1, borderColor: "#b2ebf2" },
   resultHeader: { fontWeight: "700", marginBottom: 10, fontSize: 16 },
   noLogs: { textAlign: "center", color: "#888", marginTop: 10 },
-  logCard: {
-    backgroundColor: "#f0f8ff",
-    padding: 15,
-    marginVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  totalsCard: {
-    backgroundColor: "#ffe4b5",
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 15,
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  progressRow: {
-    marginTop: 5,
-  },
-  progressBarContainer: {
-    height: 10,
-    width: "100%",
-    backgroundColor: "#eee",
-    borderRadius: 5,
-    marginVertical: 5,
-  },
-  progressBarFill: {
-    height: 10,
-    borderRadius: 5,
-  },
-  celebrationCard: {
-    backgroundColor: "#d4edda",
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 15,
-    borderWidth: 1,
-    borderColor: "#c3e6cb",
-  },
-  celebrationText: {
-    fontSize: 18,
-    fontWeight: "700",
-    textAlign: "center",
-    color: "#155724",
-  },
+  logCard: { backgroundColor: "#f0f8ff", padding: 15, marginVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "#ddd" },
+  totalsCard: { backgroundColor: "#ffe4b5", padding: 15, borderRadius: 8, marginTop: 15, borderWidth: 1, borderColor: "#ddd" },
+  progressRow: { marginTop: 5 },
+  celebrationCard: { backgroundColor: "#d4edda", padding: 15, borderRadius: 8, marginTop: 15, borderWidth: 1, borderColor: "#c3e6cb" },
+  celebrationText: { fontSize: 18, fontWeight: "700", textAlign: "center", color: "#155724" },
 });
