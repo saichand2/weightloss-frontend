@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 
-const BACKEND_URL = "http://127.0.0.1:3000/nutrition";
+const BACKEND_URL = "https://my-nutrition-api-production.up.railway.app/nutrition";
 
 export default function MealEntryScreen() {
   const [meal, setMeal] = useState("");
