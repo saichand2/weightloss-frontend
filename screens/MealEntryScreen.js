@@ -1,5 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Picker } from "@react-native-picker/picker";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -11,6 +9,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import CrossPicker from "../components/cross-picker";
+import SyncStatus from "../components/SyncStatus";
+import { deleteLog, fetchCustomMeals, fetchLogs, saveLog } from "../services/firestore";
 
 const BACKEND_URL = "https://my-nutrition-api-production.up.railway.app/nutrition";
 
@@ -24,7 +25,7 @@ export default function MealEntryScreen() {
   const [manualCalories, setManualCalories] = useState("");
   const [manualProtein, setManualProtein] = useState("");
   const [manualCarbs, setManualCarbs] = useState("");
-  const [manualFat, setManualFat] = useState("");
+  const [manualFiber, setManualFiber] = useState("");
 
   const [customMeals, setCustomMeals] = useState([]);
   const [selectedCustomMeal, setSelectedCustomMeal] = useState("");
@@ -33,44 +34,28 @@ export default function MealEntryScreen() {
   const currentDate = new Date().toISOString().split("T")[0];
 
   const dailyTargets = {
-    calories: { min: 1000, max: 1500 },
-    protein: 120,
-    carbs: 120,
+    calories: { min: 1900, max: 1900 },
+    protein: { min: 170, max: 170 },
+    carbs: { min: 200, max: 200 },
+    fat: { min: 55, max: 60 },
+    fiber: { min: 30, max: 35 },
   };
 
   useEffect(() => {
-    const loadLogs = async () => {
+    const loadData = async () => {
       try {
-        const saved = await AsyncStorage.getItem("logs");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          setLogs(parsed.filter((log) => log.date === currentDate));
-        }
-        const savedMeals = await AsyncStorage.getItem("customMeals");
-        if (savedMeals) setCustomMeals(JSON.parse(savedMeals));
+        // Try to fetch from Firestore (falls back to AsyncStorage inside the service)
+        const allLogs = await fetchLogs();
+        if (allLogs) setLogs(allLogs.filter((log) => log.date === currentDate));
+        const meals = await fetchCustomMeals();
+        if (meals) setCustomMeals(meals);
       } catch (error) {
-        console.error(error);
+        console.error("Failed to load logs/custom meals:", error);
       }
     };
-    loadLogs();
+    loadData();
   }, []);
 
-  useEffect(() => {
-    const saveLogs = async () => {
-      try {
-        const saved = await AsyncStorage.getItem("logs");
-        let parsed = saved ? JSON.parse(saved) : [];
-        parsed = parsed.filter((log) => log.date !== currentDate);
-        await AsyncStorage.setItem(
-          "logs",
-          JSON.stringify([...parsed, ...logs])
-        );
-      } catch (error) {
-        console.error(error);
-      }
-    };
-    saveLogs();
-  }, [logs]);
 
   const handleFetchNutrition = async () => {
     if (!meal) {
@@ -105,17 +90,19 @@ export default function MealEntryScreen() {
           protein: (mealObj.protein || 0) * qty,
           carbs: (mealObj.carbs || 0) * qty,
           fat: (mealObj.fat || 0) * qty,
+          fiber: (mealObj.fiber || 0) * qty,
         },
       };
     }
-    if (manualCalories || manualProtein || manualCarbs || manualFat) {
+    if (manualCalories || manualProtein || manualCarbs || manualFiber) {
       return {
         name: meal || "Manual Entry",
         total: {
           calories: parseFloat(manualCalories) || 0,
           protein: parseFloat(manualProtein) || 0,
           carbs: parseFloat(manualCarbs) || 0,
-          fat: parseFloat(manualFat) || 0,
+          fat: 0,
+          fiber: parseFloat(manualFiber) || 0,
         },
       };
     }
@@ -125,7 +112,7 @@ export default function MealEntryScreen() {
     return null;
   })();
 
-  const handleLog = () => {
+  const handleLog = async () => {
     if (!meal && !exercise && !manualCalories && !selectedCustomMeal) {
       Alert.alert("Please enter a meal, exercise, or manual nutrition values");
       return;
@@ -137,20 +124,33 @@ export default function MealEntryScreen() {
       exercise,
       nutrition: currentMealPreview.total ? { total: currentMealPreview.total } : null,
     };
+    // update UI immediately
     setLogs((prev) => [...prev, newLog]);
+    try {
+      await saveLog(newLog);
+    } catch (err) {
+      console.warn("Failed to save log to firestore, kept local:", err);
+    }
     setMeal("");
     setExercise("");
     setNutrition(null);
     setManualCalories("");
     setManualProtein("");
     setManualCarbs("");
-    setManualFat("");
+    setManualFiber("");
     setSelectedCustomMeal("");
     setMealQuantity("1");
   };
 
   const handleDelete = (id) => {
     setLogs((prev) => prev.filter((log) => log.id !== id));
+    (async () => {
+      try {
+        await deleteLog(id);
+      } catch (err) {
+        console.warn("Failed to delete log from firestore, removed locally:", err);
+      }
+    })();
   };
 
   const totals = logs.reduce(
@@ -159,22 +159,30 @@ export default function MealEntryScreen() {
         acc.calories += log.nutrition.total.calories;
         acc.protein += log.nutrition.total.protein;
         acc.carbs += log.nutrition.total.carbs;
-        acc.fat += log.nutrition.total.fat;
+        acc.fat += log.nutrition.total.fat || 0;
+        acc.fiber += log.nutrition.total.fiber || 0;
       }
       return acc;
     },
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
   );
 
   const targetsMet =
     totals.calories >= dailyTargets.calories.min &&
     totals.calories <= dailyTargets.calories.max &&
-    totals.protein >= dailyTargets.protein &&
-    totals.carbs >= dailyTargets.carbs;
+    totals.protein >= dailyTargets.protein.min &&
+    totals.protein <= dailyTargets.protein.max &&
+    totals.carbs >= dailyTargets.carbs.min &&
+    totals.carbs <= dailyTargets.carbs.max &&
+    totals.fat >= dailyTargets.fat.min &&
+    totals.fat <= dailyTargets.fat.max &&
+    totals.fiber >= dailyTargets.fiber.min &&
+    totals.fiber <= dailyTargets.fiber.max;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.header}>🥗 Meal Entry (Today)</Text>
+      <SyncStatus />
 
       <Text style={styles.label}>Enter your meal:</Text>
       <TextInput
@@ -215,26 +223,22 @@ export default function MealEntryScreen() {
         />
         <TextInput
           style={styles.manualInput}
-          placeholder="Fat"
+          placeholder="Fiber"
           keyboardType="numeric"
-          value={manualFat}
-          onChangeText={setManualFat}
+          value={manualFiber}
+          onChangeText={setManualFiber}
         />
       </View>
 
       <Text style={styles.label}>Select a custom meal:</Text>
       <View style={styles.customMealRow}>
         <View style={{ flex: 2 }}>
-          <Picker
+          <CrossPicker
+            options={[{ label: '-- Select Meal --', value: '' }, ...customMeals.map(m => ({ label: m.name, value: m.id }))]}
             selectedValue={selectedCustomMeal}
             onValueChange={(itemValue) => setSelectedCustomMeal(itemValue)}
             style={{ height: 50 }}
-          >
-            <Picker.Item label="-- Select Meal --" value="" />
-            {customMeals.map((meal) => (
-              <Picker.Item key={meal.id} label={meal.name} value={meal.id} />
-            ))}
-          </Picker>
+          />
         </View>
         {selectedCustomMeal && (
           <View style={{ flex: 1, marginLeft: 8 }}>
@@ -251,16 +255,17 @@ export default function MealEntryScreen() {
 
       <Text style={styles.label}>Select exercise (optional):</Text>
       <View style={styles.pickerContainer}>
-        <Picker
+        <CrossPicker
+          options={[
+            { label: '-- Select Exercise --', value: '' },
+            { label: 'Chest + Tricep', value: 'Chest + Tricep' },
+            { label: 'Back + Bicep', value: 'Back + Bicep' },
+            { label: 'Legs', value: 'Legs' },
+            { label: 'Abs', value: 'Abs' },
+          ]}
           selectedValue={exercise}
           onValueChange={(itemValue) => setExercise(itemValue)}
-        >
-          <Picker.Item label="-- Select Exercise --" value="" />
-          <Picker.Item label="Chest + Tricep" value="Chest + Tricep" />
-          <Picker.Item label="Back + Bicep" value="Back + Bicep" />
-          <Picker.Item label="Legs" value="Legs" />
-          <Picker.Item label="Abs" value="Abs" />
-        </Picker>
+        />
       </View>
 
       {currentMealPreview && (
@@ -270,6 +275,7 @@ export default function MealEntryScreen() {
           <Text>💪 Protein: {currentMealPreview.total.protein} g</Text>
           <Text>🥔 Carbs: {currentMealPreview.total.carbs} g</Text>
           <Text>🧈 Fat: {currentMealPreview.total.fat} g</Text>
+          <Text>🌾 Fiber: {currentMealPreview.total.fiber ?? 0} g</Text>
         </View>
       )}
 
@@ -283,10 +289,16 @@ export default function MealEntryScreen() {
             <Text>Calories: {totals.calories}/{dailyTargets.calories.max}</Text>
           </View>
           <View style={styles.progressRow}>
-            <Text>Protein: {totals.protein}/{dailyTargets.protein}</Text>
+            <Text>Protein: {totals.protein}/{dailyTargets.protein.max}</Text>
           </View>
           <View style={styles.progressRow}>
-            <Text>Carbs: {totals.carbs}/{dailyTargets.carbs}</Text>
+            <Text>Carbs: {totals.carbs}/{dailyTargets.carbs.max}</Text>
+          </View>
+          <View style={styles.progressRow}>
+            <Text>Fiber: {totals.fiber}/{dailyTargets.fiber.min}-{dailyTargets.fiber.max}</Text>
+          </View>
+          <View style={styles.progressRow}>
+            <Text>Fats: {totals.fat}/{dailyTargets.fat.min}-{dailyTargets.fat.max}</Text>
           </View>
         </View>
       )}
@@ -315,6 +327,7 @@ export default function MealEntryScreen() {
                   <Text>🔥 Calories: {item.nutrition.total.calories}</Text>
                   <Text>💪 Protein: {item.nutrition.total.protein} g</Text>
                   <Text>🥔 Carbs: {item.nutrition.total.carbs} g</Text>
+                  <Text>🌾 Fiber: {item.nutrition.total.fiber ?? 0} g</Text>
                   <Text>🧈 Fat: {item.nutrition.total.fat} g</Text>
                 </>
               )}

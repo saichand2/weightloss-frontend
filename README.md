@@ -16,6 +16,29 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+Run on web (mobile-first)
+
+1. Install dependencies
+
+```bash
+npm install
+```
+
+2. Start the app on web (Expo serves a web app that uses react-native-web)
+
+```bash
+npm run web
+# or
+npx expo start --web
+```
+
+3. To create a production-friendly static web build (for hosting)
+
+```bash
+npx expo build:web
+# or use `eas build` for advanced workflows
+```
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
@@ -52,3 +75,49 @@ Join our community of developers creating universal apps.
 ## node server.js
 
 ## npx expo start -c
+
+## Firebase (Centralized storage - optional)
+
+If you want logs and custom meals to sync across devices, you can enable Firebase Firestore.
+
+1. Install the Firebase SDK:
+
+```powershell
+npm install firebase
+```
+
+If you want improved local password security (development only), install `crypto-js`:
+
+```powershell
+npm install crypto-js
+```
+
+2. Create a Firebase project (Spark tier is free) and enable **Firestore** and **Anonymous Authentication**.
+
+3. Copy your Firebase config settings from the Firebase console and paste them into `firebase/config.js`.
+    - Do NOT commit secrets to public repos. Prefer environment variables if you share the repo.
+
+Example `firebase/config.js`:
+
+```js
+export default {
+   apiKey: "YOUR_API_KEY",
+   authDomain: "your-app.firebaseapp.com",
+   projectId: "your-project-id",
+   storageBucket: "your-app.appspot.com",
+   messagingSenderId: "...",
+   appId: "1:...:web:...",
+};
+```
+
+4. The app contains a Firestore helper at `services/firestore.js` that will automatically fall back to local `AsyncStorage` when Firebase is not configured or available.
+
+5. After adding the config and installing `firebase`, run the app:
+
+```powershell
+npm install
+npx expo start --web
+```
+
+Node runtime note:
+- Some packages used by the project require a newer Node.js runtime (>= 20.19.4). If you see engine warnings or runtime issues, upgrade Node.js (via the official installer or `nvm-windows`) to a recent Node 20+ release.

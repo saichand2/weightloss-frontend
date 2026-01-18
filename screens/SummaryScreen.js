@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -11,6 +10,8 @@ import {
   View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
+import SyncStatus from "../components/SyncStatus";
+import { saveLog, subscribeLogs } from "../services/firestore";
 
 export default function SummaryScreen() {
   const [logs, setLogs] = useState([]);
@@ -24,25 +25,24 @@ export default function SummaryScreen() {
     protein: 0,
     carbs: 0,
     fat: 0,
+    fiber: 0,
   });
 
   const dailyTargets = {
-    calories: { min: 1000, max: 1500 },
-    protein: { min: 120, max: 200 },
-    carbs: { min: 120, max: 250 },
-    fat: { min: 30, max: 70 },
+    calories: { min: 1900, max: 1900 },
+    protein: { min: 170, max: 170 },
+    carbs: { min: 200, max: 200 },
+    fat: { min: 55, max: 60 },
+    fiber: { min: 30, max: 35 },
   };
 
   useEffect(() => {
-    const loadLogs = async () => {
-      try {
-        const saved = await AsyncStorage.getItem("logs");
-        if (saved) setLogs(JSON.parse(saved));
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    loadLogs();
+    // subscribe to log updates so UI reflects new entries immediately
+    const unsub = subscribeLogs((items) => {
+      if (items) setLogs(items);
+      else setLogs([]);
+    });
+    return unsub;
   }, []);
 
   useEffect(() => {
@@ -55,11 +55,12 @@ export default function SummaryScreen() {
           acc.calories += log.nutrition.total.calories;
           acc.protein += log.nutrition.total.protein;
           acc.carbs += log.nutrition.total.carbs;
-          acc.fat += log.nutrition.total.fat;
+          acc.fat += log.nutrition.total.fat || 0;
+          acc.fiber += log.nutrition.total.fiber || 0;
         }
         return acc;
       },
-      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
     );
     setEditableTotals(totals);
     setEditMode(false);
@@ -71,11 +72,20 @@ export default function SummaryScreen() {
     return "#4ECDC4";
   };
 
+  const labelMap = {
+    calories: "🔥 Calories",
+    protein: "💪 Protein",
+    carbs: "🥔 Carbs",
+    fiber: "🌾 Fiber",
+    fat: "🧈 Fats",
+  };
+
   const handleSave = async () => {
     if (dailyLogs.length === 0) {
       setEditMode(false);
       return;
     }
+    console.log("handleSave: selectedDate", selectedDate, "editableTotals", editableTotals);
 
     // Calculate total of existing logs
     const originalTotals = dailyLogs.reduce(
@@ -84,11 +94,12 @@ export default function SummaryScreen() {
           acc.calories += log.nutrition.total.calories;
           acc.protein += log.nutrition.total.protein;
           acc.carbs += log.nutrition.total.carbs;
-          acc.fat += log.nutrition.total.fat;
+          acc.fat += log.nutrition.total.fat || 0;
+          acc.fiber += log.nutrition.total.fiber || 0;
         }
         return acc;
       },
-      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
     );
 
     // Update each log proportionally
@@ -96,7 +107,7 @@ export default function SummaryScreen() {
       if (log.date !== selectedDate || !log.nutrition?.total) return log;
 
       const updatedTotal = {};
-      ["calories", "protein", "carbs", "fat"].forEach((key) => {
+      ["calories", "protein", "carbs", "fat", "fiber"].forEach((key) => {
         const proportion = originalTotals[key]
           ? log.nutrition.total[key] / originalTotals[key]
           : 1 / dailyLogs.length;
@@ -106,8 +117,25 @@ export default function SummaryScreen() {
       return { ...log, nutrition: { total: updatedTotal } };
     });
 
+    // Optimistically update UI
     setLogs(updatedLogs);
-    await AsyncStorage.setItem("logs", JSON.stringify(updatedLogs));
+
+    try {
+      // Persist only logs for the selected date (service will fallback to AsyncStorage)
+      const toSave = updatedLogs.filter((l) => l.date === selectedDate);
+      console.log("handleSave: persisting", toSave.length, "logs");
+      await Promise.all(toSave.map((l) => saveLog(l)));
+
+      // Refresh logs from storage/service to ensure we reflect persisted state
+      try {
+        const fresh = await fetchLogs();
+        if (fresh) setLogs(fresh);
+      } catch (e) {
+        console.warn("handleSave: failed to refresh logs after save", e);
+      }
+    } catch (err) {
+      console.warn("Failed to persist updated logs:", err);
+    }
     Alert.alert("Saved", "Daily totals updated successfully!");
     setEditMode(false);
   };
@@ -123,7 +151,9 @@ export default function SummaryScreen() {
         t.carbs >= dailyTargets.carbs.min &&
         t.carbs <= dailyTargets.carbs.max &&
         t.fat >= dailyTargets.fat.min &&
-        t.fat <= dailyTargets.fat.max;
+        t.fat <= dailyTargets.fat.max &&
+        (t.fiber ?? 0) >= dailyTargets.fiber.min &&
+        (t.fiber ?? 0) <= dailyTargets.fiber.max;
       acc[log.date] = {
         marked: true,
         dotColor: met ? "#4ECDC4" : "#FF6B6B",
@@ -135,6 +165,7 @@ export default function SummaryScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <SyncStatus />
       <Calendar
         onDayPress={(day) => setSelectedDate(day.dateString)}
         markedDates={markedDates}
@@ -144,17 +175,9 @@ export default function SummaryScreen() {
       <View style={styles.totalsCard}>
         <Text style={styles.subHeader}>Summary for {selectedDate}</Text>
 
-        {["calories", "protein", "carbs", "fat"].map((key) => (
+        {["calories", "protein", "carbs", "fiber", "fat"].map((key) => (
           <View style={styles.progressRow} key={key}>
-            <Text style={styles.progressLabel}>
-              {key === "calories"
-                ? "🔥 Calories"
-                : key === "protein"
-                ? "💪 Protein"
-                : key === "carbs"
-                ? "🥔 Carbs"
-                : "🧈 Fat"}
-            </Text>
+            <Text style={styles.progressLabel}>{labelMap[key] || ""}</Text>
 
             {editMode ? (
               <TextInput
@@ -208,7 +231,7 @@ export default function SummaryScreen() {
               {item.exercise && <Text style={styles.logText}>🏋️ {item.exercise}</Text>}
               {item.nutrition?.total && (
                 <Text style={styles.logText}>
-                  🔥 {item.nutrition.total.calories} kcal | 💪 {item.nutrition.total.protein}g P | 🥔 {item.nutrition.total.carbs}g C | 🧈 {item.nutrition.total.fat}g F
+                  🔥 {item.nutrition.total.calories} kcal | 💪 {item.nutrition.total.protein}g P | 🥔 {item.nutrition.total.carbs}g C | 🌾 {item.nutrition.total.fiber ?? 0}g Fib | 🧈 {item.nutrition.total.fat}g F
                 </Text>
               )}
             </View>
